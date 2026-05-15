@@ -138,6 +138,7 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
         &self,
         codex_home: PathBuf,
         config_model_catalog: Option<ModelsResponse>,
+        config_model_catalog_patch: Option<ModelsResponse>,
     ) -> SharedModelsManager;
 }
 
@@ -239,6 +240,7 @@ impl ModelProvider for ConfiguredModelProvider {
         &self,
         codex_home: PathBuf,
         config_model_catalog: Option<ModelsResponse>,
+        config_model_catalog_patch: Option<ModelsResponse>,
     ) -> SharedModelsManager {
         match config_model_catalog {
             Some(model_catalog) => Arc::new(StaticModelsManager::new(
@@ -254,6 +256,7 @@ impl ModelProvider for ConfiguredModelProvider {
                     codex_home,
                     endpoint,
                     self.auth_manager.clone(),
+                    config_model_catalog_patch,
                 ))
             }
         }
@@ -497,8 +500,11 @@ mod tests {
             ModelProviderInfo::create_amazon_bedrock_provider(/*aws*/ None),
             /*auth_manager*/ None,
         );
-        let manager =
-            provider.models_manager(test_codex_home(), /*config_model_catalog*/ None);
+        let manager = provider.models_manager(
+            test_codex_home(),
+            /*config_model_catalog*/ None,
+            /*config_model_catalog_patch*/ None,
+        );
 
         let catalog = manager.raw_model_catalog(RefreshStrategy::Online).await;
         let model_ids = catalog
@@ -540,6 +546,7 @@ mod tests {
             Some(ModelsResponse {
                 models: vec![custom_model],
             }),
+            /*config_model_catalog_patch*/ None,
         );
 
         let catalog = manager.raw_model_catalog(RefreshStrategy::Online).await;
@@ -576,8 +583,11 @@ mod tests {
             )),
         );
 
-        let manager =
-            provider.models_manager(test_codex_home(), /*config_model_catalog*/ None);
+        let manager = provider.models_manager(
+            test_codex_home(),
+            /*config_model_catalog*/ None,
+            /*config_model_catalog_patch*/ None,
+        );
         let catalog = manager.raw_model_catalog(RefreshStrategy::Online).await;
 
         assert!(

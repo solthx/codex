@@ -224,6 +224,7 @@ pub fn build_models_manager(
     provider.models_manager(
         config.codex_home.to_path_buf(),
         config.model_catalog.clone(),
+        config.model_catalog_patch.clone(),
     )
 }
 

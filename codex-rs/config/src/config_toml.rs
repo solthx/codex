@@ -349,6 +349,9 @@ pub struct ConfigToml {
     /// Optional path to a JSON model catalog (applied on startup only).
     /// Per-thread `config` overrides are accepted but do not reapply this (no-ops).
     pub model_catalog_json: Option<AbsolutePathBuf>,
+    /// Optional path to a JSON model catalog patch (applied on startup only).
+    /// Merges custom models into the bundled/remote catalog without replacing it.
+    pub model_catalog_patch_json: Option<AbsolutePathBuf>,
 
     /// Optionally specify a personality for the model
     pub personality: Option<Personality>,
