@@ -861,6 +861,9 @@ pub struct Config {
     /// Optional full model catalog loaded from `model_catalog_json`.
     /// When set, this replaces the bundled catalog for the current process.
     pub model_catalog: Option<ModelsResponse>,
+    /// Optional model catalog patch loaded from `model_catalog_patch_json`.
+    /// When set, this augments bundled/remote catalogs with custom entries.
+    pub model_catalog_patch: Option<ModelsResponse>,
 
     /// Optional verbosity control for GPT-5 models (Responses API `text.verbosity`).
     pub model_verbosity: Option<Verbosity>,
@@ -1247,6 +1250,7 @@ impl Config {
             personality_enabled: self.features.enabled(Feature::Personality),
             model_supports_reasoning_summaries: self.model_supports_reasoning_summaries,
             model_catalog: self.model_catalog.clone(),
+            model_catalog_patch: self.model_catalog_patch.clone(),
         }
     }
 
@@ -1559,11 +1563,42 @@ fn load_catalog_json(path: &AbsolutePathBuf) -> std::io::Result<ModelsResponse> 
     Ok(catalog)
 }
 
+fn load_catalog_patch_json(path: &AbsolutePathBuf) -> std::io::Result<ModelsResponse> {
+    let file_contents = std::fs::read_to_string(path)?;
+    let catalog = serde_json::from_str::<ModelsResponse>(&file_contents).map_err(|err| {
+        std::io::Error::new(
+            ErrorKind::InvalidData,
+            format!(
+                "failed to parse model_catalog_patch_json path `{}` as JSON: {err}",
+                path.display()
+            ),
+        )
+    })?;
+    if catalog.models.is_empty() {
+        return Err(std::io::Error::new(
+            ErrorKind::InvalidData,
+            format!(
+                "model_catalog_patch_json path `{}` must contain at least one model",
+                path.display()
+            ),
+        ));
+    }
+    Ok(catalog)
+}
+
 fn load_model_catalog(
     model_catalog_json: Option<AbsolutePathBuf>,
 ) -> std::io::Result<Option<ModelsResponse>> {
     model_catalog_json
         .map(|path| load_catalog_json(&path))
+        .transpose()
+}
+
+fn load_model_catalog_patch(
+    model_catalog_patch_json: Option<AbsolutePathBuf>,
+) -> std::io::Result<Option<ModelsResponse>> {
+    model_catalog_patch_json
+        .map(|path| load_catalog_patch_json(&path))
         .transpose()
 }
 
@@ -3147,12 +3182,22 @@ impl Config {
         let review_model = override_review_model.or(cfg.review_model);
 
         let check_for_update_on_startup = cfg.check_for_update_on_startup.unwrap_or(true);
-        let model_catalog = load_model_catalog(
-            config_profile
-                .model_catalog_json
-                .clone()
-                .or(cfg.model_catalog_json.clone()),
-        )?;
+        let model_catalog_json = config_profile
+            .model_catalog_json
+            .clone()
+            .or(cfg.model_catalog_json.clone());
+        let model_catalog_patch_json = config_profile
+            .model_catalog_patch_json
+            .clone()
+            .or(cfg.model_catalog_patch_json.clone());
+        if model_catalog_json.is_some() && model_catalog_patch_json.is_some() {
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidInput,
+                "model_catalog_json and model_catalog_patch_json are mutually exclusive; remove one of them",
+            ));
+        }
+        let model_catalog = load_model_catalog(model_catalog_json)?;
+        let model_catalog_patch = load_model_catalog_patch(model_catalog_patch_json)?;
 
         let log_dir = cfg
             .log_dir
@@ -3413,6 +3458,7 @@ impl Config {
                 .or(cfg.model_reasoning_summary),
             model_supports_reasoning_summaries: cfg.model_supports_reasoning_summaries,
             model_catalog,
+            model_catalog_patch,
             model_verbosity: config_profile.model_verbosity.or(cfg.model_verbosity),
             chatgpt_base_url: config_profile
                 .chatgpt_base_url

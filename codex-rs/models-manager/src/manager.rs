@@ -181,6 +181,7 @@ pub type SharedModelsManager = Arc<dyn ModelsManager>;
 #[derive(Debug)]
 pub struct OpenAiModelsManager {
     remote_models: RwLock<Vec<ModelInfo>>,
+    model_catalog_patch: Vec<ModelInfo>,
     etag: RwLock<Option<String>>,
     cache_manager: ModelsCacheManager,
     endpoint_client: SharedModelsEndpointClient,
@@ -200,12 +201,14 @@ impl OpenAiModelsManager {
         codex_home: PathBuf,
         endpoint_client: Arc<dyn ModelsEndpointClient>,
         auth_manager: Option<Arc<AuthManager>>,
+        model_catalog_patch: Option<ModelsResponse>,
     ) -> Self {
         let cache_path = codex_home.join(MODEL_CACHE_FILE);
         let cache_manager = ModelsCacheManager::new(cache_path, DEFAULT_MODEL_CACHE_TTL);
         let remote_models = load_remote_models_from_file().unwrap_or_default();
         Self {
             remote_models: RwLock::new(remote_models),
+            model_catalog_patch: model_catalog_patch.map_or_else(Vec::new, |patch| patch.models),
             etag: RwLock::new(None),
             cache_manager,
             endpoint_client,
@@ -236,11 +239,17 @@ impl ModelsManager for OpenAiModelsManager {
     }
 
     async fn get_remote_models(&self) -> Vec<ModelInfo> {
-        self.remote_models.read().await.clone()
+        merge_model_catalogs(
+            self.remote_models.read().await.clone(),
+            &self.model_catalog_patch,
+        )
     }
 
     fn try_get_remote_models(&self) -> Result<Vec<ModelInfo>, TryLockError> {
-        Ok(self.remote_models.try_read()?.clone())
+        Ok(merge_model_catalogs(
+            self.remote_models.try_read()?.clone(),
+            &self.model_catalog_patch,
+        ))
     }
 
     fn auth_manager(&self) -> Option<&AuthManager> {
@@ -408,6 +417,20 @@ impl ModelsManager for StaticModelsManager {
 
 fn load_remote_models_from_file() -> Result<Vec<ModelInfo>, std::io::Error> {
     Ok(crate::bundled_models_response()?.models)
+}
+
+fn merge_model_catalogs(mut base: Vec<ModelInfo>, patch: &[ModelInfo]) -> Vec<ModelInfo> {
+    for patch_model in patch {
+        if let Some(existing_index) = base
+            .iter()
+            .position(|existing| existing.slug == patch_model.slug)
+        {
+            base[existing_index] = patch_model.clone();
+        } else {
+            base.push(patch_model.clone());
+        }
+    }
+    base
 }
 
 fn default_model_from_available(available: Vec<ModelPreset>) -> String {

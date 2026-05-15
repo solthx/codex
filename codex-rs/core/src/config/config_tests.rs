@@ -7488,6 +7488,96 @@ async fn model_catalog_json_rejects_empty_catalog() -> std::io::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn model_catalog_patch_json_loads_from_path() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    let patch_path = codex_home.path().join("catalog-patch.json");
+    let mut catalog = bundled_models_response()
+        .unwrap_or_else(|err| panic!("bundled models.json should parse: {err}"));
+    catalog.models = catalog.models.into_iter().take(1).collect();
+    std::fs::write(
+        &patch_path,
+        serde_json::to_string(&catalog).expect("serialize catalog"),
+    )?;
+
+    let cfg = ConfigToml {
+        model_catalog_patch_json: Some(patch_path.abs()),
+        ..Default::default()
+    };
+
+    let config = Config::load_from_base_config_with_overrides(
+        cfg,
+        ConfigOverrides::default(),
+        codex_home.abs(),
+    )
+    .await?;
+
+    assert_eq!(config.model_catalog_patch, Some(catalog));
+    Ok(())
+}
+
+#[tokio::test]
+async fn model_catalog_patch_json_rejects_empty_catalog() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    let patch_path = codex_home.path().join("catalog-patch.json");
+    std::fs::write(&patch_path, r#"{"models":[]}"#)?;
+
+    let cfg = ConfigToml {
+        model_catalog_patch_json: Some(patch_path.abs()),
+        ..Default::default()
+    };
+
+    let err = Config::load_from_base_config_with_overrides(
+        cfg,
+        ConfigOverrides::default(),
+        codex_home.abs(),
+    )
+    .await
+    .expect_err("empty custom catalog patch should fail config load");
+
+    assert_eq!(err.kind(), ErrorKind::InvalidData);
+    assert!(
+        err.to_string().contains("must contain at least one model"),
+        "unexpected error: {err}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn model_catalog_json_and_patch_json_are_mutually_exclusive() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    let catalog_path = codex_home.path().join("catalog.json");
+    let patch_path = codex_home.path().join("catalog-patch.json");
+    std::fs::write(
+        &catalog_path,
+        r#"{"models":[{"id":"foo","owned_by":"openai"}]}"#,
+    )?;
+    std::fs::write(
+        &patch_path,
+        r#"{"models":[{"id":"bar","owned_by":"openai"}]}"#,
+    )?;
+
+    let cfg = ConfigToml {
+        model_catalog_json: Some(catalog_path.abs()),
+        model_catalog_patch_json: Some(patch_path.abs()),
+        ..Default::default()
+    };
+
+    let err = Config::load_from_base_config_with_overrides(
+        cfg,
+        ConfigOverrides::default(),
+        codex_home.abs(),
+    )
+    .await
+    .expect_err("model catalog replacement and patch are mutually exclusive");
+    assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    assert!(
+        err.to_string()
+            .contains("model_catalog_json and model_catalog_patch_json are mutually exclusive")
+    );
+    Ok(())
+}
+
 fn create_test_fixture() -> std::io::Result<PrecedenceTestFixture> {
     let toml = r#"
 model = "o3"
@@ -7688,6 +7778,7 @@ async fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
             model_reasoning_summary: Some(ReasoningSummary::Detailed),
             model_supports_reasoning_summaries: None,
             model_catalog: None,
+            model_catalog_patch: None,
             model_verbosity: None,
             personality: Some(Personality::Pragmatic),
             chatgpt_base_url: "https://chatgpt.com/backend-api/".to_string(),
@@ -8138,6 +8229,7 @@ async fn test_precedence_fixture_with_gpt3_profile() -> std::io::Result<()> {
         model_reasoning_summary: None,
         model_supports_reasoning_summaries: None,
         model_catalog: None,
+        model_catalog_patch: None,
         model_verbosity: None,
         personality: Some(Personality::Pragmatic),
         chatgpt_base_url: "https://chatgpt.com/backend-api/".to_string(),
@@ -8302,6 +8394,7 @@ async fn test_precedence_fixture_with_zdr_profile() -> std::io::Result<()> {
         model_reasoning_summary: None,
         model_supports_reasoning_summaries: None,
         model_catalog: None,
+        model_catalog_patch: None,
         model_verbosity: None,
         personality: Some(Personality::Pragmatic),
         chatgpt_base_url: "https://chatgpt.com/backend-api/".to_string(),
@@ -8451,6 +8544,7 @@ async fn test_precedence_fixture_with_gpt5_profile() -> std::io::Result<()> {
         model_reasoning_summary: Some(ReasoningSummary::Detailed),
         model_supports_reasoning_summaries: None,
         model_catalog: None,
+        model_catalog_patch: None,
         model_verbosity: Some(Verbosity::High),
         personality: Some(Personality::Pragmatic),
         chatgpt_base_url: "https://chatgpt.com/backend-api/".to_string(),

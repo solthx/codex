@@ -9,4 +9,5 @@ pub struct ModelsManagerConfig {
     pub personality_enabled: bool,
     pub model_supports_reasoning_summaries: Option<bool>,
     pub model_catalog: Option<ModelsResponse>,
+    pub model_catalog_patch: Option<ModelsResponse>,
 }
